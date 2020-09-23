@@ -28,7 +28,6 @@ from fairseq.logging import meters, metrics, progress_bar
 from fairseq.model_parallel.megatron_trainer import MegatronTrainer
 from fairseq.trainer import Trainer
 
-
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
@@ -54,7 +53,6 @@ def main(args):
 
     # Print args
     logger.info(args)
-
     # Setup task, e.g., translation, language modeling, etc.
     task = tasks.setup_task(args)
 
@@ -66,15 +64,12 @@ def main(args):
     model = task.build_model(args)
     criterion = task.build_criterion(args)
     logger.info(model)
-    logger.info(
-        "model {}, criterion {}".format(args.arch, criterion.__class__.__name__)
-    )
-    logger.info(
-        "num. model params: {} (num. trained: {})".format(
-            sum(p.numel() for p in model.parameters()),
-            sum(p.numel() for p in model.parameters() if p.requires_grad),
-        )
-    )
+    logger.info("model {}, criterion {}".format(args.arch,
+                                                criterion.__class__.__name__))
+    logger.info("num. model params: {} (num. trained: {})".format(
+        sum(p.numel() for p in model.parameters()),
+        sum(p.numel() for p in model.parameters() if p.requires_grad),
+    ))
 
     # (optionally) Configure quantization
     if args.quantization_config_path is not None:
@@ -92,14 +87,11 @@ def main(args):
     else:
         trainer = MegatronTrainer(args, task, model, criterion)
 
-    logger.info(
-        "training on {} devices (GPUs/TPUs)".format(args.distributed_world_size)
-    )
+    logger.info("training on {} devices (GPUs/TPUs)".format(
+        args.distributed_world_size))
     logger.info(
         "max tokens per GPU = {} and max sentences per GPU = {}".format(
-            args.max_tokens, args.max_sentences
-        )
-    )
+            args.max_tokens, args.max_sentences))
 
     # Load the latest checkpoint if one is available and restore the
     # corresponding train iterator
@@ -124,7 +116,6 @@ def main(args):
 
         # only use first validation loss to update the learning rate
         lr = trainer.lr_step(epoch_itr.epoch, valid_losses[0])
-
         epoch_itr = trainer.get_train_iterator(
             epoch_itr.next_epoch_idx,
             # sharded data: get train iterator for next epoch
@@ -153,10 +144,8 @@ def should_stop_early(args, valid_loss):
         should_stop_early.num_runs += 1
         if should_stop_early.num_runs >= args.patience:
             logger.info(
-                "early stop since valid performance hasn't improved for last {} runs".format(
-                    args.patience
-                )
-            )
+                "early stop since valid performance hasn't improved for last {} runs"
+                .format(args.patience))
             return True
         else:
             return False
@@ -180,17 +169,14 @@ def tpu_data_loader(args, itr):
 def train(args, trainer, task, epoch_itr):
     """Train the model for one epoch and return validation losses."""
     logger.info("begin training epoch {}".format(epoch_itr.epoch))
-
     # Initialize data iterator
     itr = epoch_itr.next_epoch_itr(
         fix_batches_to_gpus=args.fix_batches_to_gpus,
         shuffle=(epoch_itr.next_epoch_idx > args.curriculum),
     )
-    update_freq = (
-        args.update_freq[epoch_itr.epoch - 1]
-        if epoch_itr.epoch <= len(args.update_freq)
-        else args.update_freq[-1]
-    )
+    update_freq = (args.update_freq[epoch_itr.epoch - 1]
+                   if epoch_itr.epoch <= len(args.update_freq) else
+                   args.update_freq[-1])
     itr = iterators.GroupedIterator(itr, update_freq)
     if getattr(args, "tpu", False):
         itr = tpu_data_loader(args, itr)
@@ -199,9 +185,8 @@ def train(args, trainer, task, epoch_itr):
         log_format=args.log_format,
         log_interval=args.log_interval,
         epoch=epoch_itr.epoch,
-        tensorboard_logdir=(
-            args.tensorboard_logdir if distributed_utils.is_master(args) else None
-        ),
+        tensorboard_logdir=(args.tensorboard_logdir
+                            if distributed_utils.is_master(args) else None),
         default_log_format=("tqdm" if not args.no_progress_bar else "simple"),
     )
 
@@ -210,9 +195,9 @@ def train(args, trainer, task, epoch_itr):
     valid_subsets = args.valid_subset.split(",")
     should_stop = False
     for i, samples in enumerate(progress):
-        with metrics.aggregate("train_inner"), torch.autograd.profiler.record_function(
-            "train_step-%d" % i
-        ):
+        with metrics.aggregate(
+                "train_inner"), torch.autograd.profiler.record_function(
+                    "train_step-%d" % i):
             log_output = trainer.train_step(samples)
             if log_output is None:  # OOM, overflow, ...
                 continue
@@ -220,7 +205,8 @@ def train(args, trainer, task, epoch_itr):
         # log mid-epoch stats
         num_updates = trainer.get_num_updates()
         if num_updates % args.log_interval == 0:
-            stats = get_training_stats(metrics.get_smoothed_values("train_inner"))
+            stats = get_training_stats(
+                metrics.get_smoothed_values("train_inner"))
             progress.log(stats, tag="train_inner", step=num_updates)
 
             # reset mid-epoch stats after each log interval
@@ -228,15 +214,16 @@ def train(args, trainer, task, epoch_itr):
             metrics.reset_meters("train_inner")
 
         end_of_epoch = not itr.has_next()
-        valid_losses, should_stop = validate_and_save(
-            args, trainer, task, epoch_itr, valid_subsets, end_of_epoch
-        )
+        valid_losses, should_stop = validate_and_save(args, trainer, task,
+                                                      epoch_itr, valid_subsets,
+                                                      end_of_epoch)
 
         if should_stop:
             break
 
     # log end-of-epoch stats
-    logger.info("end of epoch {} (average epoch stats below)".format(epoch_itr.epoch))
+    logger.info("end of epoch {} (average epoch stats below)".format(
+        epoch_itr.epoch))
     stats = get_training_stats(metrics.get_smoothed_values("train"))
     progress.print(stats, tag="train", step=num_updates)
 
@@ -245,17 +232,16 @@ def train(args, trainer, task, epoch_itr):
     return valid_losses, should_stop
 
 
-def validate_and_save(args, trainer, task, epoch_itr, valid_subsets, end_of_epoch):
+def validate_and_save(args, trainer, task, epoch_itr, valid_subsets,
+                      end_of_epoch):
     num_updates = trainer.get_num_updates()
-    do_save = (
-        args.save_interval_updates > 0
-        and num_updates > 0
-        and num_updates % args.save_interval_updates == 0
-    ) or (end_of_epoch and epoch_itr.epoch % args.save_interval == 0)
+    do_save = (args.save_interval_updates > 0 and num_updates > 0
+               and num_updates % args.save_interval_updates == 0) or (
+                   end_of_epoch and epoch_itr.epoch % args.save_interval == 0)
     do_validate = (
         (not end_of_epoch and do_save)  # validate during mid-epoch saves
-        or (end_of_epoch and epoch_itr.epoch % args.validate_interval == 0)
-    ) and not args.disable_validation
+        or (end_of_epoch and epoch_itr.epoch % args.validate_interval
+            == 0)) and not args.disable_validation
 
     # Validate
     valid_losses = [None]
@@ -264,19 +250,17 @@ def validate_and_save(args, trainer, task, epoch_itr, valid_subsets, end_of_epoc
 
     # Stopping conditions
     max_update = args.max_update or math.inf
-    should_stop = (
-        should_stop_early(args, valid_losses[0])
-        or trainer.get_num_updates() >= max_update
-        or (
-            args.stop_time_hours > 0
-            and trainer.cumulative_training_time() / (60 * 60) > args.stop_time_hours
-        )
-    )
+    should_stop = (should_stop_early(args, valid_losses[0])
+                   or trainer.get_num_updates() >= max_update
+                   or (args.stop_time_hours > 0
+                       and trainer.cumulative_training_time() /
+                       (60 * 60) > args.stop_time_hours))
 
     # Save checkpoint
     if do_save or should_stop:
         logger.info("begin save checkpoint")
-        checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
+        checkpoint_utils.save_checkpoint(args, trainer, epoch_itr,
+                                         valid_losses[0])
 
     return valid_losses, should_stop
 
@@ -307,10 +291,10 @@ def validate(args, trainer, task, epoch_itr, subsets):
             log_interval=args.log_interval,
             epoch=epoch_itr.epoch,
             prefix=f"valid on '{subset}' subset",
-            tensorboard_logdir=(
-                args.tensorboard_logdir if distributed_utils.is_master(args) else None
-            ),
-            default_log_format=("tqdm" if not args.no_progress_bar else "simple"),
+            tensorboard_logdir=(args.tensorboard_logdir if
+                                distributed_utils.is_master(args) else None),
+            default_log_format=("tqdm"
+                                if not args.no_progress_bar else "simple"),
         )
 
         # create a new root metrics aggregator so validation metrics
@@ -332,9 +316,8 @@ def get_valid_stats(args, trainer, stats):
     if hasattr(checkpoint_utils.save_checkpoint, "best"):
         key = "best_{0}".format(args.best_checkpoint_metric)
         best_function = max if args.maximize_best_checkpoint_metric else min
-        stats[key] = best_function(
-            checkpoint_utils.save_checkpoint.best, stats[args.best_checkpoint_metric]
-        )
+        stats[key] = best_function(checkpoint_utils.save_checkpoint.best,
+                                   stats[args.best_checkpoint_metric])
     return stats
 
 

@@ -2,7 +2,6 @@
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
-
 """
 Train a network across multiple GPUs.
 """
@@ -22,7 +21,6 @@ from fairseq.logging import meters, metrics
 from fairseq.nan_detector import NanDetector
 from fairseq.optim import lr_scheduler
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -35,11 +33,11 @@ class Trainer(object):
     :class:`~torch.nn.parallel.DistributedDataParallel` to handle
     communication of the gradients across workers.
     """
-
     def __init__(self, args, task, model, criterion, quantizer=None):
         self.args = args
         self.task = task
-
+        #import pdb
+        #pdb.set_trace()
         # catalog shared parameters
         shared_params = _catalog_shared_params(model)
 
@@ -71,9 +69,8 @@ class Trainer(object):
         for shared_param in shared_params:
             ref = _get_module_by_path(self._model, shared_param[0])
             for path in shared_param[1:]:
-                logger.info(
-                    'detected shared parameter: {} <- {}'.format(shared_param[0], path)
-                )
+                logger.info('detected shared parameter: {} <- {}'.format(
+                    shared_param[0], path))
                 _set_module_by_path(self._model, path, ref)
 
         self._dummy_batch = "DUMMY"  # indicates we don't have a dummy batch at first
@@ -88,7 +85,8 @@ class Trainer(object):
 
         # TODO(myleott): support tpu
         if self.cuda and self.data_parallel_world_size > 1:
-            self._grad_norm_buf = torch.cuda.DoubleTensor(self.data_parallel_world_size)
+            self._grad_norm_buf = torch.cuda.DoubleTensor(
+                self.data_parallel_world_size)
         else:
             self._grad_norm_buf = None
 
@@ -100,11 +98,13 @@ class Trainer(object):
         if self.cuda:
             self.cuda_env = utils.CudaEnvironment()
             if self.data_parallel_world_size > 1:
-                self.cuda_env_arr = distributed_utils.all_gather_list(self.cuda_env)
+                self.cuda_env_arr = distributed_utils.all_gather_list(
+                    self.cuda_env)
             else:
                 self.cuda_env_arr = [self.cuda_env]
             if self.data_parallel_rank == 0:
-                utils.CudaEnvironment.pretty_print_cuda_env_list(self.cuda_env_arr)
+                utils.CudaEnvironment.pretty_print_cuda_env_list(
+                    self.cuda_env_arr)
         else:
             self.cuda_env = None
             self.cuda_env_arr = None
@@ -144,16 +144,13 @@ class Trainer(object):
     @property
     def criterion(self):
         if self._wrapped_criterion is None:
-            if (
-                utils.has_parameters(self._criterion)
-                and self.data_parallel_world_size > 1
-                and not self.args.use_bmuf
-                and not self.tpu
-            ):
+            if (utils.has_parameters(self._criterion)
+                    and self.data_parallel_world_size > 1
+                    and not self.args.use_bmuf and not self.tpu):
                 self._wrapped_criterion = models.DistributedFairseqModel(
-                    self.args, self._criterion,
-                    process_group=self.data_parallel_process_group
-                )
+                    self.args,
+                    self._criterion,
+                    process_group=self.data_parallel_process_group)
             else:
                 self._wrapped_criterion = self._criterion
         return self._wrapped_criterion
@@ -161,15 +158,12 @@ class Trainer(object):
     @property
     def model(self):
         if self._wrapped_model is None:
-            if (
-                self.data_parallel_world_size > 1
-                and not self.args.use_bmuf
-                and not self.tpu
-            ):
+            if (self.data_parallel_world_size > 1 and not self.args.use_bmuf
+                    and not self.tpu):
                 self._wrapped_model = models.DistributedFairseqModel(
-                    self.args, self._model,
-                    process_group=self.data_parallel_process_group
-                )
+                    self.args,
+                    self._model,
+                    process_group=self.data_parallel_process_group)
             else:
                 self._wrapped_model = self._model
         return self._wrapped_model
@@ -191,24 +185,24 @@ class Trainer(object):
             filter(
                 lambda p: p.requires_grad,
                 chain(self.model.parameters(), self.criterion.parameters()),
-            )
-        )
+            ))
 
         if self.args.fp16 or self.args.bf16:
             if self.cuda and torch.cuda.get_device_capability(0)[0] < 7:
                 logger.info(
                     "NOTE: your device does NOT support faster training with --fp16, "
-                    "please switch to FP32 which is likely to be faster"
-                )
+                    "please switch to FP32 which is likely to be faster")
             if self.args.memory_efficient_fp16 or self.args.memory_efficient_bf16:
                 self._optimizer = optim.MemoryEfficientFP16Optimizer.build_optimizer(
-                    self.args, params
-                )
+                    self.args, params)
             else:
-                self._optimizer = optim.FP16Optimizer.build_optimizer(self.args, params)
+                self._optimizer = optim.FP16Optimizer.build_optimizer(
+                    self.args, params)
         else:
             if self.cuda and torch.cuda.get_device_capability(0)[0] >= 7:
-                logger.info("NOTE: your device may support faster training with --fp16")
+                logger.info(
+                    "NOTE: your device may support faster training with --fp16"
+                )
             self._optimizer = optim.build_optimizer(self.args, params)
 
         if self.args.use_bmuf:
@@ -216,14 +210,16 @@ class Trainer(object):
 
         # We should initialize the learning rate scheduler immediately after
         # building the optimizer, so that the initial learning rate is set.
-        self._lr_scheduler = lr_scheduler.build_lr_scheduler(self.args, self.optimizer)
+        self._lr_scheduler = lr_scheduler.build_lr_scheduler(
+            self.args, self.optimizer)
         self._lr_scheduler.step_update(0)
 
     def save_checkpoint(self, filename, extra_state):
         """Save all training state in a checkpoint file."""
         if self.is_data_parallel_master:  # only save one checkpoint
             extra_state["metrics"] = metrics.state_dict()
-            extra_state["previous_training_time"] = self.cumulative_training_time()
+            extra_state[
+                "previous_training_time"] = self.cumulative_training_time()
             checkpoint_utils.save_state(
                 filename,
                 self.args,
@@ -253,18 +249,17 @@ class Trainer(object):
 
             # load model parameters
             try:
-                self.get_model().load_state_dict(
-                    state["model"], strict=True, args=self.args
-                )
+                self.get_model().load_state_dict(state["model"],
+                                                 strict=True,
+                                                 args=self.args)
                 if utils.has_parameters(self.get_criterion()):
-                    self.get_criterion().load_state_dict(
-                        state["criterion"], strict=True
-                    )
+                    self.get_criterion().load_state_dict(state["criterion"],
+                                                         strict=True)
             except Exception:
                 raise Exception(
                     "Cannot load model parameters from checkpoint {}; "
-                    "please ensure that the architectures match.".format(filename)
-                )
+                    "please ensure that the architectures match.".format(
+                        filename))
 
             extra_state = state["extra_state"]
             self._optim_history = state["optimizer_history"]
@@ -277,28 +272,30 @@ class Trainer(object):
             # only reload optimizer and lr_scheduler if they match
             last_optim = self._optim_history[-1]
             assert (
-                last_optim["criterion_name"] == self.get_criterion().__class__.__name__
+                last_optim["criterion_name"] ==
+                self.get_criterion().__class__.__name__
             ), "Criterion does not match; please reset the optimizer (--reset-optimizer)."
             assert (
-                last_optim["optimizer_name"] == self.optimizer.__class__.__name__
+                last_optim["optimizer_name"] ==
+                self.optimizer.__class__.__name__
             ), "Optimizer does not match; please reset the optimizer (--reset-optimizer)."
 
             if not reset_lr_scheduler:
-                self.lr_scheduler.load_state_dict(last_optim["lr_scheduler_state"])
-            self.optimizer.load_state_dict(last_optim_state, optimizer_overrides)
+                self.lr_scheduler.load_state_dict(
+                    last_optim["lr_scheduler_state"])
+            self.optimizer.load_state_dict(last_optim_state,
+                                           optimizer_overrides)
 
             self.set_num_updates(last_optim["num_updates"])
 
         if extra_state is not None:
             epoch = extra_state["train_iterator"]["epoch"]
-            logger.info(
-                "loaded checkpoint {} (epoch {} @ {} updates)".format(
-                    filename, epoch, self.get_num_updates()
-                )
-            )
+            logger.info("loaded checkpoint {} (epoch {} @ {} updates)".format(
+                filename, epoch, self.get_num_updates()))
 
             if "previous_training_time" in extra_state:
-                self._previous_training_time = extra_state["previous_training_time"]
+                self._previous_training_time = extra_state[
+                    "previous_training_time"]
                 self._start_time = time.time()
 
             self.lr_step(epoch)
@@ -342,13 +339,13 @@ class Trainer(object):
                 self.args.max_tokens,
             ),
             ignore_invalid_inputs=True,
-            required_batch_size_multiple=self.args.required_batch_size_multiple,
+            required_batch_size_multiple=self.args.
+            required_batch_size_multiple,
             seed=self.args.seed,
             num_shards=self.data_parallel_world_size if shard_batch_itr else 1,
             shard_id=self.data_parallel_rank if shard_batch_itr else 0,
             num_workers=self.args.num_workers,
-            epoch=epoch
-        )
+            epoch=epoch)
 
     def get_valid_iterator(
         self,
@@ -363,13 +360,14 @@ class Trainer(object):
                 self.task.max_positions(),
                 self.model.max_positions(),
             ),
-            ignore_invalid_inputs=self.args.skip_invalid_size_inputs_valid_test,
-            required_batch_size_multiple=self.args.required_batch_size_multiple,
+            ignore_invalid_inputs=self.args.
+            skip_invalid_size_inputs_valid_test,
+            required_batch_size_multiple=self.args.
+            required_batch_size_multiple,
             seed=self.args.seed,
             num_shards=self.data_parallel_world_size,
             shard_id=self.data_parallel_rank,
-            num_workers=self.args.num_workers
-        )
+            num_workers=self.args.num_workers)
 
     def begin_epoch(self, epoch):
         """Called at the beginning of each epoch."""
@@ -410,11 +408,9 @@ class Trainer(object):
                 want to accumulate gradients locally and only call
                 all-reduce in the last backwards pass.
                 """
-                if (
-                    self.data_parallel_world_size > 1
-                    and hasattr(self.model, "no_sync")
-                    and i < len(samples) - 1
-                ):
+                if (self.data_parallel_world_size > 1
+                        and hasattr(self.model, "no_sync")
+                        and i < len(samples) - 1):
                     return self.model.no_sync()
                 else:
                     return contextlib.ExitStack()  # dummy contextmanager
@@ -479,9 +475,15 @@ class Trainer(object):
         # gather logging outputs from all replicas
         if self._sync_stats():
             train_time = self._local_cumulative_training_time()
-            logging_outputs, (sample_size, ooms, total_train_time) = self._aggregate_logging_outputs(
-                logging_outputs, sample_size, ooms, train_time, ignore=is_dummy_batch,
-            )
+            logging_outputs, (
+                sample_size, ooms,
+                total_train_time) = self._aggregate_logging_outputs(
+                    logging_outputs,
+                    sample_size,
+                    ooms,
+                    train_time,
+                    ignore=is_dummy_batch,
+                )
             self._cumulative_training_time = total_train_time / self.data_parallel_world_size
 
         overflow = False
@@ -489,16 +491,20 @@ class Trainer(object):
             if self.tpu and self.data_parallel_world_size > 1:
                 import torch_xla.core.xla_model as xm
                 gradients = xm._fetch_gradients(self.optimizer.optimizer)
-                xm.all_reduce('sum', gradients, scale=1.0 / self.data_parallel_world_size)
+                xm.all_reduce('sum',
+                              gradients,
+                              scale=1.0 / self.data_parallel_world_size)
 
             with torch.autograd.profiler.record_function("multiply-grads"):
                 # multiply gradients by (# GPUs / sample_size) since DDP
                 # already normalizes by the number of GPUs. Thus we get
                 # (sum_of_gradients / sample_size).
                 if not self.args.use_bmuf:
-                    self.optimizer.multiply_grads(self.data_parallel_world_size / sample_size)
+                    self.optimizer.multiply_grads(
+                        self.data_parallel_world_size / sample_size)
                 elif sample_size > 0:  # BMUF needs to check sample size
-                    num = self.data_parallel_world_size if self._sync_stats() else 1
+                    num = self.data_parallel_world_size if self._sync_stats(
+                    ) else 1
                     self.optimizer.multiply_grads(num / sample_size)
 
             with torch.autograd.profiler.record_function("clip-grads"):
@@ -506,11 +512,9 @@ class Trainer(object):
                 grad_norm = self.clip_grad_norm(self.args.clip_norm)
 
             # check that grad norms are consistent across workers
-            if (
-                not self.args.use_bmuf
-                and self.args.distributed_wrapper != 'SlowMo'
-                and not self.tpu
-            ):
+            if (not self.args.use_bmuf
+                    and self.args.distributed_wrapper != 'SlowMo'
+                    and not self.tpu):
                 self._check_grad_norms(grad_norm)
 
             with torch.autograd.profiler.record_function("optimizer"):
@@ -520,10 +524,12 @@ class Trainer(object):
             # re-run the forward and backward pass with hooks attached to print
             # out where it fails
             with NanDetector(self.model):
-                self.task.train_step(
-                    sample, self.model, self.criterion, self.optimizer, self.get_num_updates(),
-                    ignore_grad=False
-                )
+                self.task.train_step(sample,
+                                     self.model,
+                                     self.criterion,
+                                     self.optimizer,
+                                     self.get_num_updates(),
+                                     ignore_grad=False)
             raise
         except OverflowError as e:
             overflow = True
@@ -539,9 +545,11 @@ class Trainer(object):
         # Some distributed wrappers (e.g., SlowMo) need access to the optimizer after the step
         if hasattr(self.model, 'perform_additional_optimizer_actions'):
             if hasattr(self.optimizer, 'fp32_params'):
-                self.model.perform_additional_optimizer_actions(self.optimizer.optimizer, self.optimizer.fp32_params)
+                self.model.perform_additional_optimizer_actions(
+                    self.optimizer.optimizer, self.optimizer.fp32_params)
             else:
-                self.model.perform_additional_optimizer_actions(self.optimizer.optimizer)
+                self.model.perform_additional_optimizer_actions(
+                    self.optimizer.optimizer)
 
         if not overflow or self.args.distributed_wrapper == 'SlowMo':
             self.set_num_updates(self.get_num_updates() + 1)
@@ -556,7 +564,9 @@ class Trainer(object):
                 logging_output = {}
                 if self.get_num_updates() % self.args.log_interval == 0:
                     logging_output = self._reduce_and_log_stats(
-                        logging_outputs, sample_size, grad_norm,
+                        logging_outputs,
+                        sample_size,
+                        grad_norm,
                     )
 
                 # log whenever there's an XLA compilation, since these
@@ -566,22 +576,22 @@ class Trainer(object):
             else:
                 # log stats
                 logging_output = self._reduce_and_log_stats(
-                    logging_outputs, sample_size, grad_norm,
+                    logging_outputs,
+                    sample_size,
+                    grad_norm,
                 )
 
                 # clear CUDA cache to reduce memory fragmentation
-                if (
-                    self.cuda
-                    and self.args.empty_cache_freq > 0
-                    and (
-                        (self.get_num_updates() + self.args.empty_cache_freq - 1)
-                        % self.args.empty_cache_freq
-                    ) == 0
-                ):
+                if (self.cuda and self.args.empty_cache_freq > 0 and (
+                    (self.get_num_updates() + self.args.empty_cache_freq - 1) %
+                        self.args.empty_cache_freq) == 0):
                     torch.cuda.empty_cache()
 
         if self.args.fp16:
-            metrics.log_scalar("loss_scale", self.optimizer.scaler.loss_scale, priority=700, round=0)
+            metrics.log_scalar("loss_scale",
+                               self.optimizer.scaler.loss_scale,
+                               priority=700,
+                               round=0)
 
         metrics.log_stop_time("train_wall")
 
@@ -610,8 +620,7 @@ class Trainer(object):
 
             try:
                 _loss, sample_size, logging_output = self.task.valid_step(
-                    sample, self.model, self.criterion
-                )
+                    sample, self.model, self.criterion)
             except RuntimeError as e:
                 if "out of memory" in str(e):
                     self._log_oom(e)
@@ -637,11 +646,14 @@ class Trainer(object):
         # gather logging outputs from all replicas
         if self.data_parallel_world_size > 1:
             logging_outputs, (sample_size, ) = self._aggregate_logging_outputs(
-                logging_outputs, sample_size, ignore=is_dummy_batch,
+                logging_outputs,
+                sample_size,
+                ignore=is_dummy_batch,
             )
 
         # log validation stats
-        logging_output = self._reduce_and_log_stats(logging_outputs, sample_size)
+        logging_output = self._reduce_and_log_stats(logging_outputs,
+                                                    sample_size)
 
         return logging_output
 
@@ -723,7 +735,10 @@ class Trainer(object):
         self.lr_step_update()
         if self.quantizer:
             self.quantizer.step_update(self._num_updates)
-        metrics.log_scalar("num_updates", self._num_updates, weight=0, priority=200)
+        metrics.log_scalar("num_updates",
+                           self._num_updates,
+                           weight=0,
+                           priority=200)
 
     def clip_grad_norm(self, clip_norm):
         return self.optimizer.clip_grad_norm(clip_norm, aggregate_norm_fn=None)
@@ -783,10 +798,9 @@ class Trainer(object):
         if self.data_parallel_world_size == 1:
             return False
         elif self.args.use_bmuf:
-            return (
-                (self.get_num_updates() + 1) % self.args.global_sync_iter == 0
-                and (self.get_num_updates() + 1) > self.args.warmup_iterations
-            )
+            return ((self.get_num_updates() + 1) % self.args.global_sync_iter
+                    == 0 and
+                    (self.get_num_updates() + 1) > self.args.warmup_iterations)
         else:
             return True
 
@@ -804,14 +818,15 @@ class Trainer(object):
         *extra_stats_to_sum,
         ignore=False,
     ):
-        if self.task.__class__.logging_outputs_can_be_summed(self.get_criterion()):
-            return self._fast_stat_sync_sum(
-                logging_outputs, *extra_stats_to_sum, ignore=ignore
-            )
+        if self.task.__class__.logging_outputs_can_be_summed(
+                self.get_criterion()):
+            return self._fast_stat_sync_sum(logging_outputs,
+                                            *extra_stats_to_sum,
+                                            ignore=ignore)
         else:
-            return self._all_gather_list_sync(
-                logging_outputs, *extra_stats_to_sum, ignore=ignore
-            )
+            return self._all_gather_list_sync(logging_outputs,
+                                              *extra_stats_to_sum,
+                                              ignore=ignore)
 
     def _all_gather_list_sync(
         self,
@@ -827,13 +842,12 @@ class Trainer(object):
             raise NotImplementedError
         if ignore:
             logging_outputs = []
-        results = list(zip(
-            *distributed_utils.all_gather_list(
+        results = list(
+            zip(*distributed_utils.all_gather_list(
                 [logging_outputs] + list(extra_stats_to_sum),
                 max_size=getattr(self.args, 'all_gather_list_size', 16384),
                 group=self.data_parallel_process_group,
-            )
-        ))
+            )))
         logging_outputs, extra_stats_to_sum = results[0], results[1:]
         logging_outputs = list(chain.from_iterable(logging_outputs))
         extra_stats_to_sum = [sum(s) for s in extra_stats_to_sum]
@@ -867,16 +881,17 @@ class Trainer(object):
             log_keys = None
 
         data = distributed_utils.all_reduce_dict(
-            data,
-            device=self.device,
-            group=self.data_parallel_process_group
-        )
+            data, device=self.device, group=self.data_parallel_process_group)
 
         extra_stats_to_sum = [
-            data['extra_stats_' + str(i)] for i in range(len(extra_stats_to_sum))
+            data['extra_stats_' + str(i)]
+            for i in range(len(extra_stats_to_sum))
         ]
         if log_keys is not None:
-            logging_outputs = [{k: data['logging_outputs_' + k] for k in log_keys}]
+            logging_outputs = [{
+                k: data['logging_outputs_' + k]
+                for k in log_keys
+            }]
         else:
             logging_outputs = []
         return logging_outputs, extra_stats_to_sum
@@ -887,9 +902,7 @@ class Trainer(object):
             self._grad_norm_buf.zero_()
             self._grad_norm_buf[self.data_parallel_rank] = grad_norm
             distributed_utils.all_reduce(
-                self._grad_norm_buf,
-                group=self.data_parallel_process_group
-            )
+                self._grad_norm_buf, group=self.data_parallel_process_group)
 
             def is_consistent(tensor):
                 max_abs_diff = torch.max(torch.abs(tensor - tensor[0]))
@@ -898,20 +911,20 @@ class Trainer(object):
             if not is_consistent(self._grad_norm_buf):
                 pretty_detail = "\n".join(
                     "rank {:3d} = {:.8f}".format(r, n)
-                    for r, n in enumerate(self._grad_norm_buf.tolist())
-                )
-                error_detail = "grad_norm across the workers:\n{}\n".format(pretty_detail)
+                    for r, n in enumerate(self._grad_norm_buf.tolist()))
+                error_detail = "grad_norm across the workers:\n{}\n".format(
+                    pretty_detail)
                 raise RuntimeError(
                     "Fatal error: gradients are inconsistent between workers. "
                     "Try --ddp-backend=no_c10d. "
                     "Or are you mixing up different generation of GPUs in training?"
-                    + "\n"
-                    + "-" * 80
-                    + "\n{}\n".format(error_detail)
-                    + "-" * 80
-                )
+                    + "\n" + "-" * 80 + "\n{}\n".format(error_detail) +
+                    "-" * 80)
 
-    def _reduce_and_log_stats(self, logging_outputs, sample_size, grad_norm=None):
+    def _reduce_and_log_stats(self,
+                              logging_outputs,
+                              sample_size,
+                              grad_norm=None):
         if grad_norm is not None:
             metrics.log_speed("ups", 1., priority=100, round=2)
             metrics.log_scalar("gnorm", grad_norm, priority=400, round=3)
@@ -938,8 +951,7 @@ class Trainer(object):
                     self._warn_once.add("loss")
                     logger.warning(
                         "Criterion.reduce_metrics did not log a 'loss' value, "
-                        "which may break some functionality"
-                    )
+                        "which may break some functionality")
                 metrics.log_scalar("loss", -1)
 
             # support legacy interface
@@ -961,10 +973,8 @@ class Trainer(object):
         num_xla_compiles = compile_stats[0]
         if num_xla_compiles > self._num_xla_compiles:
             if message is None:
-                message = (
-                    "too many of these can lead to slow training, "
-                    "but we expect a few in the beginning"
-                )
+                message = ("too many of these can lead to slow training, "
+                           "but we expect a few in the beginning")
             logging.info("NOTE: XLA compilation detected; {}".format(message))
         self._num_xla_compiles = num_xla_compiles
 

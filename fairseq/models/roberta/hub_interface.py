@@ -23,7 +23,6 @@ class RobertaHubInterface(nn.Module):
         self.args = args
         self.task = task
         self.model = model
-
         self.bpe = encoders.build_bpe(args)
 
         # this is useful for determining the device
